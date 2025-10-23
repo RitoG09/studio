@@ -8,6 +8,7 @@ import { LintTab } from './components/LintTab';
 import { FormatTab } from './components/FormatTab';
 import { MetaschemaTab } from './components/MetaschemaTab';
 import { Footer } from './components/Footer';
+import { LoadingSpinner } from './components/LoadingSpinner';
 
 function App() {
   const [state, setState] = useState<PanelState | null>(null);
@@ -51,13 +52,21 @@ function App() {
   return (
     <div className="flex flex-col h-screen p-5">
       <FileInfo fileInfo={state.fileInfo} />
-      <HealthBar lintResult={state.lintResult} />
+      <HealthBar lintResult={state.lintResult} isLoading={state.isLoading} />
       <Tabs activeTab={activeTab} onTabChange={handleTabChange} state={state} />
       
       <div className="flex-1 overflow-y-auto">
-        {activeTab === 'lint' && <LintTab lintResult={state.lintResult} />}
-        {activeTab === 'format' && <FormatTab formatResult={state.formatResult} />}
-        {activeTab === 'metaschema' && <MetaschemaTab metaschemaResult={state.metaschemaResult} />}
+        {state.isLoading ? (
+          <LoadingSpinner />
+        ) : state.formatLoading && activeTab === 'format' ? (
+          <LoadingSpinner />
+        ) : (
+          <>
+            {activeTab === 'lint' && <LintTab lintResult={state.lintResult} />}
+            {activeTab === 'format' && <FormatTab formatResult={state.formatResult} />}
+            {activeTab === 'metaschema' && <MetaschemaTab metaschemaResult={state.metaschemaResult} />}
+          </>
+        )}
       </div>
 
       <Footer version={state.version} />

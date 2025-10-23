@@ -1,6 +1,6 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { FileInfo, LintResult } from '../../shared/types';
+import { FileInfo, LintResult, MetaschemaResult } from '../../shared/types';
 
 /**
  * Get information about a file path
@@ -49,12 +49,59 @@ export function parseLintResult(lintOutput: string): LintResult {
             errors: parsed.errors || []
         };
     } catch (error) {
+        console.error('Failed to parse lint result:', error instanceof Error ? error.message : String(error));
         return {
             raw: lintOutput,
             health: null,
             error: true
         };
     }
+}
+
+/**
+ * Parse metaschema command output
+ */
+export function parseMetaschemaResult(output: string, exitCode: number | null): MetaschemaResult {
+    const result: MetaschemaResult = { output, exitCode };
+
+    if (exitCode === 2) {
+        try {
+            let jsonStr = output.trim();
+
+            const jsonStart = jsonStr.indexOf('[');
+            const jsonEnd = jsonStr.lastIndexOf(']');
+            
+            if (jsonStart !== -1 && jsonEnd !== -1 && jsonStart < jsonEnd) {
+                jsonStr = jsonStr.substring(jsonStart, jsonEnd + 1);
+            }
+            
+            const parsed = JSON.parse(jsonStr);
+            if (Array.isArray(parsed)) {
+                result.errors = parsed.map((error: { 
+                    error?: string; 
+                    instanceLocation?: string; 
+                    keywordLocation?: string; 
+                    absoluteKeywordLocation?: string;
+                    instancePosition?: [number, number, number, number];
+                }) => ({
+                    error: error.error || 'Validation error',
+                    instanceLocation: error.instanceLocation || '',
+                    keywordLocation: error.keywordLocation || '',
+                    absoluteKeywordLocation: error.absoluteKeywordLocation,
+                    instancePosition: error.instancePosition
+                }));
+                console.log('[Metaschema] Mapped errors count:', result.errors.length);
+            } else {
+                console.error('[Metaschema] Expected array but got:', typeof parsed);
+            }
+        } catch (error) {
+            console.error('Failed to parse metaschema result:', error instanceof Error ? error.message : String(error));
+            console.error('[Metaschema] Raw output:', output);
+            console.error('[Metaschema] Output length:', output.length);
+        }
+    }
+    
+    return result;
 }
 
 /**

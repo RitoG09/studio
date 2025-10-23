@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { PanelManager } from './panel/PanelManager';
 import { CommandExecutor } from './commands/CommandExecutor';
 import { DiagnosticManager } from './diagnostics/DiagnosticManager';
-import { getFileInfo, parseLintResult, errorPositionToRange } from './utils/fileUtils';
+import { getFileInfo, parseLintResult, parseMetaschemaResult, errorPositionToRange } from './utils/fileUtils';
 import { WebviewMessage, PanelState, DiagnosticType } from '../shared/types';
 
 let panelManager: PanelManager;
@@ -10,11 +10,18 @@ let commandExecutor: CommandExecutor;
 let diagnosticManager: DiagnosticManager;
 let lastActiveTextEditor: vscode.TextEditor | undefined;
 let cachedVersion = 'Loading...';
+let currentPanelState: PanelState | null = null;
 
 /**
  * Extension activation
  */
 export function activate(context: vscode.ExtensionContext): void {
+    // Disable VS Code's built-in JSON validation if configured
+    const config = vscode.workspace.getConfiguration('sourcemeta-studio');
+    if (config.get('disableBuiltInValidation', true)) {
+        vscode.workspace.getConfiguration('json').update('validate.enable', false, vscode.ConfigurationTarget.Workspace);
+    }
+
     panelManager = new PanelManager(context.extensionPath);
     commandExecutor = new CommandExecutor(context.extensionPath);
     diagnosticManager = new DiagnosticManager();
@@ -58,17 +65,48 @@ function handleWebviewMessage(message: WebviewMessage): void {
     if (message.command === 'goToPosition' && lastActiveTextEditor && message.position) {
         const range = errorPositionToRange(message.position);
 
-        lastActiveTextEditor.revealRange(range, vscode.TextEditorRevealType.InCenter);
-
-        lastActiveTextEditor.selection = new vscode.Selection(range.start, range.end);
-
-        vscode.window.showTextDocument(lastActiveTextEditor.document, lastActiveTextEditor.viewColumn);
+        vscode.window.showTextDocument(lastActiveTextEditor.document, {
+            viewColumn: lastActiveTextEditor.viewColumn,
+            preserveFocus: false
+        }).then((editor) => {
+            editor.selection = new vscode.Selection(range.start, range.end);
+            
+            editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
+        });
     } else if (message.command === 'formatSchema' && lastActiveTextEditor) {
-        commandExecutor.format(lastActiveTextEditor.document.uri.fsPath).then(() => {
-            vscode.window.showTextDocument(lastActiveTextEditor!.document, lastActiveTextEditor!.viewColumn);
-            updatePanelContent();
+        const filePath = lastActiveTextEditor.document.uri.fsPath;
+        const fileInfo = getFileInfo(filePath);
+        
+        if (!fileInfo || !panelManager.exists() || !currentPanelState) {
+            return;
+        }
+
+        // Send format loading state only, preserve existing lint/metaschema state
+        panelManager.updateContent({
+            ...currentPanelState,
+            formatLoading: true
+        });
+
+        commandExecutor.format(filePath).then(async () => {
+            if (lastActiveTextEditor) {
+                await vscode.window.showTextDocument(lastActiveTextEditor.document, lastActiveTextEditor.viewColumn);
+            }
+            
+            // Wait for Huge schemas to reload after formatting
+            await new Promise(resolve => setTimeout(resolve, 300));
+
+            await updatePanelContent();
         }).catch((error) => {
             vscode.window.showErrorMessage(`Format failed: ${error.message}`);
+            if (currentPanelState) {
+                const updatedState = {
+                    ...currentPanelState,
+                    formatResult: { output: `Error: ${error.message}`, exitCode: null },
+                    formatLoading: false
+                };
+                currentPanelState = updatedState;
+                panelManager.updateContent(updatedState);
+            }
         });
     }
 }
@@ -92,17 +130,25 @@ function handleActiveEditorChange(editor: vscode.TextEditor | undefined): void {
                     preview: false
                 }).then(() => {
                     lastActiveTextEditor = vscode.window.activeTextEditor;
+                    // Only update if the file actually changed
+                    updatePanelContent();
                 });
             });
         } else {
+            const previousFile = lastActiveTextEditor?.document.uri.fsPath;
             lastActiveTextEditor = editor;
+
+            if (previousFile !== editor.document.uri.fsPath) {
+                updatePanelContent();
+            }
         }
     } else if (editor && editor.document.uri.scheme === 'file') {
+        const previousFile = lastActiveTextEditor?.document.uri.fsPath;
         lastActiveTextEditor = editor;
-    }
 
-    if (panelManager.exists()) {
-        updatePanelContent();
+        if (panelManager.exists() && previousFile !== editor.document.uri.fsPath) {
+            updatePanelContent();
+        }
     }
 }
 
@@ -131,12 +177,14 @@ async function updatePanelContent(): Promise<void> {
     const filePath = lastActiveTextEditor?.document.uri.fsPath;
     const fileInfo = getFileInfo(filePath);
 
+    // Send initial loading state
     const loadingState: PanelState = {
         fileInfo,
         version: cachedVersion,
-        lintResult: { raw: 'Loading...', health: null },
-        formatResult: { output: 'Loading...', exitCode: null },
-        metaschemaResult: { output: 'Loading...', exitCode: null }
+        lintResult: { raw: '', health: null },
+        formatResult: { output: '', exitCode: null },
+        metaschemaResult: { output: '', exitCode: null },
+        isLoading: true
     };
     panelManager.updateContent(loadingState);
 
@@ -146,7 +194,7 @@ async function updatePanelContent(): Promise<void> {
 
     // Run all commands in parallel
     try {
-        const [version, lintOutput, formatResult, metaschemaResult] = await Promise.all([
+        const [version, lintOutput, formatResult, metaschemaRawResult] = await Promise.all([
             commandExecutor.getVersion(),
             fileInfo ? commandExecutor.lint(fileInfo.absolutePath) : Promise.resolve('No file selected'),
             fileInfo ? commandExecutor.formatCheck(fileInfo.absolutePath) : Promise.resolve({ output: 'No file selected', exitCode: null }),
@@ -155,21 +203,33 @@ async function updatePanelContent(): Promise<void> {
 
         cachedVersion = version;
         const lintResult = parseLintResult(lintOutput);
+        const metaschemaResult = parseMetaschemaResult(metaschemaRawResult.output, metaschemaRawResult.exitCode);
 
         const finalState: PanelState = {
             fileInfo,
             version: cachedVersion,
             lintResult,
             formatResult,
-            metaschemaResult
+            metaschemaResult,
+            isLoading: false
         };
+        currentPanelState = finalState;
         panelManager.updateContent(finalState);
 
+        // Update lint diagnostics
         if (lastActiveTextEditor && lintResult.errors && lintResult.errors.length > 0) {
             diagnosticManager.updateDiagnostics(
                 lastActiveTextEditor.document.uri,
                 lintResult.errors,
                 DiagnosticType.Lint
+            );
+        }
+
+        // Update metaschema diagnostics
+        if (lastActiveTextEditor && metaschemaResult.errors && metaschemaResult.errors.length > 0) {
+            diagnosticManager.updateMetaschemaDiagnostics(
+                lastActiveTextEditor.document.uri,
+                metaschemaResult.errors
             );
         }
     } catch (error) {
@@ -179,8 +239,10 @@ async function updatePanelContent(): Promise<void> {
             version: cachedVersion,
             lintResult: { raw: `Error: ${(error as Error).message}`, health: null, error: true },
             formatResult: { output: `Error: ${(error as Error).message}`, exitCode: null },
-            metaschemaResult: { output: `Error: ${(error as Error).message}`, exitCode: null }
+            metaschemaResult: { output: `Error: ${(error as Error).message}`, exitCode: null },
+            isLoading: false
         };
+        currentPanelState = errorState;
         panelManager.updateContent(errorState);
     }
 }

@@ -30,7 +30,18 @@ export interface CommandResult {
     exitCode: number | null;
 }
 
-export type MetaschemaResult = CommandResult;
+export interface MetaschemaError {
+    error: string;
+    instanceLocation: string;
+    keywordLocation: string;
+    absoluteKeywordLocation?: string;
+    instancePosition?: [number, number, number, number]; // [lineStart, colStart, lineEnd, colEnd]
+}
+
+export interface MetaschemaResult extends CommandResult {
+    errors?: MetaschemaError[];
+}
+
 export type FormatResult = CommandResult;
 
 export interface PanelState {
@@ -39,6 +50,8 @@ export interface PanelState {
     lintResult: LintResult;
     formatResult: FormatResult;
     metaschemaResult: MetaschemaResult;
+    isLoading?: boolean;
+    formatLoading?: boolean;
 }
 
 export interface WebviewMessage {

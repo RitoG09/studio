@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { LintError, DiagnosticType } from '../../shared/types';
+import { LintError, MetaschemaError, DiagnosticType } from '../../shared/types';
 import { errorPositionToRange } from '../utils/fileUtils';
 
 /**
@@ -38,9 +38,45 @@ export class DiagnosticManager {
                 ? 'Sourcemeta Studio (Lint)' 
                 : 'Sourcemeta Studio (Metaschema)';
 
-            // Add error ID as code
             if (error.id) {
-                diagnostic.code = error.id;
+                diagnostic.code = {
+                    value: error.id,
+                    // TODO: link to JSON Schema linting rules markdown repo
+                    target: vscode.Uri.parse(`https://github.com/sourcemeta/jsonschema/blob/main/docs/lint/${error.id}.md`)
+                };
+            }
+
+            const relatedInfo: vscode.DiagnosticRelatedInformation[] = [];
+            
+            if (error.description) {
+                relatedInfo.push(
+                    new vscode.DiagnosticRelatedInformation(
+                        new vscode.Location(documentUri, range),
+                        ` ${error.description}`
+                    )
+                );
+            }
+
+            if (error.path) {
+                relatedInfo.push(
+                    new vscode.DiagnosticRelatedInformation(
+                        new vscode.Location(documentUri, range),
+                        ` Path: ${error.path}`
+                    )
+                );
+            }
+
+            if (error.schemaLocation) {
+                relatedInfo.push(
+                    new vscode.DiagnosticRelatedInformation(
+                        new vscode.Location(documentUri, range),
+                        ` Schema Location: ${error.schemaLocation}`
+                    )
+                );
+            }
+
+            if (relatedInfo.length > 0) {
+                diagnostic.relatedInformation = relatedInfo;
             }
 
             return diagnostic;
@@ -51,6 +87,67 @@ export class DiagnosticManager {
             : this.metaschemaDiagnostics;
         
         collection.set(documentUri, diagnostics);
+    }
+
+    updateMetaschemaDiagnostics(
+        documentUri: vscode.Uri,
+        errors: MetaschemaError[]
+    ): void {
+        const diagnostics = errors
+            .filter(error => error.instancePosition)
+            .map(error => {
+                const position = error.instancePosition as [number, number, number, number];
+                const range = errorPositionToRange(position);
+
+                const diagnostic = new vscode.Diagnostic(
+                    range,
+                    error.error,
+                    vscode.DiagnosticSeverity.Error
+                );
+
+                diagnostic.source = 'Sourcemeta Studio (Metaschema)';
+
+                if (error.instanceLocation) {
+                    diagnostic.code = error.instanceLocation;
+                }
+
+                const relatedInfo: vscode.DiagnosticRelatedInformation[] = [];
+                
+                if (error.instanceLocation) {
+                    relatedInfo.push(
+                        new vscode.DiagnosticRelatedInformation(
+                            new vscode.Location(documentUri, range),
+                            ` Instance Location: ${error.instanceLocation}`
+                        )
+                    );
+                }
+
+                if (error.keywordLocation) {
+                    relatedInfo.push(
+                        new vscode.DiagnosticRelatedInformation(
+                            new vscode.Location(documentUri, range),
+                            ` Keyword Location: ${error.keywordLocation}`
+                        )
+                    );
+                }
+
+                if (error.absoluteKeywordLocation) {
+                    relatedInfo.push(
+                        new vscode.DiagnosticRelatedInformation(
+                            new vscode.Location(documentUri, range),
+                            ` Absolute Keyword Location: ${error.absoluteKeywordLocation}`
+                        )
+                    );
+                }
+
+                if (relatedInfo.length > 0) {
+                    diagnostic.relatedInformation = relatedInfo;
+                }
+
+                return diagnostic;
+            });
+
+        this.metaschemaDiagnostics.set(documentUri, diagnostics);
     }
 
     /**
