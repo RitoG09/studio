@@ -1,5 +1,5 @@
 {
-  "name": "sourcemeta-studio",
+  "name": "studio",
   "displayName": "Sourcemeta Studio",
   "publisher": "sourcemeta",
   "description": "JSON Schema inspection, formatting, and linting tools",
@@ -18,8 +18,8 @@
         "command": "sourcemeta-studio.openPanel",
         "title": "Open Sourcemeta Studio",
         "icon": {
-          "light": "../assets/logo.svg",
-          "dark": "../assets/logo.svg"
+          "light": "../assets/logo.png",
+          "dark": "../assets/logo.png"
         }
       }
     ],
@@ -57,7 +57,7 @@
     "lint": "eslint src --ext ts"
   },
   "dependencies": {
-    "@sourcemeta/jsonschema": "^12.1.0"
+    "@sourcemeta/jsonschema": "^12.2.0"
   },
   "devDependencies": {
     "@types/chai": "^5.2.3",
