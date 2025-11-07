@@ -34,7 +34,7 @@ jobs:
             exit 1
           fi
 
-      - run: make
+      - run: xvfb-run --auto-servernum make
 
       - run: gh config set prompt disabled
         env:
