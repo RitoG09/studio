@@ -5,7 +5,7 @@ import { PanelManager } from './panel/PanelManager';
 import { CommandExecutor } from './commands/CommandExecutor';
 import { DiagnosticManager } from './diagnostics/DiagnosticManager';
 import { getFileInfo, parseLintResult, parseMetaschemaResult, errorPositionToRange, parseCliError, hasJsonParseErrors } from './utils/fileUtils';
-import { LintError, PanelState, WebviewToExtensionMessage } from '../../protocol/types';
+import { PanelState, WebviewToExtensionMessage } from '../../protocol/types';
 import { DiagnosticType } from './types';
 
 let panelManager: PanelManager;
