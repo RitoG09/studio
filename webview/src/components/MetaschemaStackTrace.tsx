@@ -96,16 +96,14 @@ export function MetaschemaStackTrace({errors}:Props){
           <div className="flex flex-col gap-2 mt-2">
             {
               stack.map((err,ind)=>{
-                const indent=ind*16;
+                const STACK_INDENT = 16;
                 return (
                   <div
                     key={ind}
                     className="flex items-start gap-2"
-                    style={{ paddingLeft: indent }}
+                    style={{ paddingLeft: STACK_INDENT }}
                   >
-                    {ind > 0 && (
-                      <span className="text-(--vscode-muted) font-mono select-none mt-1">↳</span>
-                    )}
+                    <span className="text-(--vscode-muted) font-mono select-none mt-1">↳</span>
                     <ErrorBox
                       error={err}
                       indent={0}
